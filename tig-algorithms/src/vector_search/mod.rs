@@ -66,7 +66,8 @@ pub use optimax_gpu as c004_a026;
 
 // c004_a033
 
-// c004_a034
+pub mod invector;
+pub use invector as c004_a034;
 
 // c004_a035
 
