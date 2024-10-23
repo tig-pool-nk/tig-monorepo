@@ -29,6 +29,9 @@ mod web3_feature {
         Ok(format!("0x{}", address.encode_hex::<String>()))
     }
 
+    pub const ERC20_TRANSFER_TOPIC: &str =
+        "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
     pub async fn get_transaction(
         rpc_url: &str,
         erc20_address: &str,
@@ -42,54 +45,77 @@ mod web3_feature {
             .transaction_receipt(tx_hash)
             .await?
             .ok_or_else(|| anyhow!("Receipt for transaction {} not found", tx_hash))?;
+
         if !receipt.status.is_some_and(|x| x.as_u64() == 1) {
             return Err(anyhow!("Transaction not confirmed"));
         }
-        let to = format!(
-            "{:?}",
-            receipt.to.ok_or_else(|| anyhow!("Receiver not found"))?
-        );
-        if to != erc20_address {
-            return Err(anyhow!(
-                "Transaction not interacting with erc20 contract '{}'",
-                erc20_address
-            ));
+
+        // Find the Transfer event log
+        let erc20_address = H160::from_str(erc20_address.trim_start_matches("0x")).unwrap();
+        let transfer_topic = H256::from_slice(&hex::decode(ERC20_TRANSFER_TOPIC)?);
+        let transfer_log = receipt
+            .logs
+            .iter()
+            .find(|log| {
+                log.address == erc20_address
+                    && !log.topics.is_empty()
+                    && log.topics[0] == transfer_topic
+            })
+            .ok_or_else(|| anyhow!("No ERC20 transfer event found"))?;
+
+        if transfer_log.topics.len() != 3 {
+            return Err(anyhow!("Invalid Transfer event format"));
         }
-        let tx = eth
-            .transaction(TransactionId::Hash(tx_hash))
-            .await?
-            .ok_or_else(|| anyhow!("Transaction {} not found", tx_hash))?;
-        if hex::encode(&tx.input.0[0..4]) != "a9059cbb" {
-            return Err(anyhow!("Not a ERC20 transfer transaction"));
-        };
+
+        // Extract transfer details from the event
+        let sender = format!(
+            "0x{}",
+            hex::encode(&transfer_log.topics[1].as_bytes()[12..])
+        );
+        let receiver = format!(
+            "0x{}",
+            hex::encode(&transfer_log.topics[2].as_bytes()[12..])
+        );
+        let amount = PreciseNumber::from_hex_str(&hex::encode(&transfer_log.data.0))?;
+
         Ok(super::Transaction {
-            sender: format!("{:?}", tx.from.ok_or_else(|| anyhow!("Sender not found"))?),
-            receiver: format!("0x{}", hex::encode(&tx.input.0[16..36])),
-            amount: PreciseNumber::from_hex_str(&hex::encode(&tx.input.0[36..68]))?,
+            sender,
+            receiver,
+            amount,
         })
     }
 
-    pub const PROXY_CREATION_TOPIC_ID: &str =
-        "0x4f51faf6c4561ff95f067657e43439f0f856d97c04d9ec9070a6199ad418e235";
-    pub const GNOSIS_SAFE_PROXY_CONTRACT_ADDRESS: &str =
-        "0xc22834581ebc8527d974f8a1c97e1bea4ef910bc";
     pub const GNOSIS_SAFE_ABI: &str = r#"[
         {
-            "inputs":[],
-            "name":"getOwners",
-            "outputs":[
+            "inputs": [
                 {
-                    "internalType":"address[]",
-                    "name":"",
-                    "type":"address[]"
+                    "name": "_dataHash",
+                    "type": "bytes32"
+                },
+                {
+                    "name": "_signature",
+                    "type": "bytes"
                 }
             ],
-            "stateMutability":"view",
-            "type":"function"
+            "name": "isValidSignature",
+            "outputs": [
+                {
+                    "name": "",
+                    "type": "bytes4"
+                }
+            ],
+            "payable": false,
+            "stateMutability": "view",
+            "type": "function"
         }
     ]"#;
 
-    pub async fn get_gnosis_safe_owners(rpc_url: &str, address: &str) -> Result<Vec<String>> {
+    pub async fn is_valid_gnosis_safe_sig(
+        rpc_url: &str,
+        address: &str,
+        msg: &str,
+        sig: &str,
+    ) -> Result<()> {
         let transport = web3::transports::Http::new(rpc_url)?;
         let eth = web3::Web3::new(transport).eth();
 
@@ -99,44 +125,69 @@ mod web3_feature {
             GNOSIS_SAFE_ABI.as_bytes(),
         )
         .unwrap();
-        let owners: Vec<Address> = gnosis_safe
-            .query("getOwners", (), None, Options::default(), None)
-            .await
-            .map_err(|e| anyhow!("Failed query getOwners: {:?}", e))?;
-        Ok(owners.iter().map(|x| format!("{:?}", x)).collect())
+        let result: Result<Vec<u8>, _> = gnosis_safe
+            .query(
+                "isValidSignature",
+                (
+                    hash_message(msg.as_bytes()),
+                    hex::decode(sig.trim_start_matches("0x"))?,
+                ),
+                None,
+                Options::default(),
+                None,
+            )
+            .await;
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => Err(anyhow!("Failed query isValidSignature: {:?}", e)),
+        }
     }
 
-    pub async fn get_gnosis_safe_address(rpc_url: &str, tx_hash: &str) -> Result<String> {
+    pub const ENS_REVERSE_RECORDS_ADDRESS: &str = "0x3671aE578E63FdF66ad4F3E12CC0c0d71Ac7510C";
+    pub const ENS_REVERSE_RECORDS_ABI: &str = r#"[
+        {
+            "inputs": [
+                {
+                    "internalType": "address[]",
+                    "name": "addresses",
+                    "type": "address[]"
+                }
+            ],
+            "name": "getNames",
+            "outputs": [
+                {
+                    "internalType": "string[]",
+                    "name": "r",
+                    "type": "string[]"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        }
+    ]"#;
+
+    pub async fn lookup_ens_name(rpc_url: &str, address: &str) -> Result<String> {
         let transport = web3::transports::Http::new(rpc_url)?;
         let eth = web3::Web3::new(transport).eth();
 
-        let tx_hash = H256::from_slice(hex::decode(tx_hash.trim_start_matches("0x"))?.as_slice());
-        let receipt = eth
-            .transaction_receipt(tx_hash)
-            .await?
-            .ok_or_else(|| anyhow!("Receipt for transaction {} not found", tx_hash))?;
-        if !receipt.status.is_some_and(|x| x.as_u64() == 1) {
-            return Err(anyhow!("Transaction not confirmed"));
-        }
-        if !receipt
-            .to
-            .is_some_and(|x| format!("{:?}", x) == GNOSIS_SAFE_PROXY_CONTRACT_ADDRESS)
-        {
-            return Err(anyhow!("Not a Create Gnosis Safe transaction"));
-        }
-        match receipt
-            .logs
-            .iter()
-            .find(|log| {
-                log.topics
-                    .iter()
-                    .any(|topic| format!("{:?}", topic) == PROXY_CREATION_TOPIC_ID)
-            })
-            .map(|log| format!("0x{}", hex::encode(&log.data.0.as_slice()[12..32])))
-        {
-            None => Err(anyhow!("No ProxyCreation event found")),
-            Some(gnosis_safe_address) => Ok(gnosis_safe_address),
-        }
+        let reverse_records = Contract::from_json(
+            eth.clone(),
+            H160::from_str(ENS_REVERSE_RECORDS_ADDRESS)?,
+            ENS_REVERSE_RECORDS_ABI.as_bytes(),
+        )?;
+
+        let addresses = vec![H160::from_str(address.trim_start_matches("0x"))?];
+
+        let names: Vec<String> = reverse_records
+            .query("getNames", (addresses,), None, Options::default(), None)
+            .await?;
+
+        // Return first name or address if empty
+        Ok(if !names[0].is_empty() {
+            names[0].clone()
+        } else {
+            address.to_string()
+        })
     }
 }
 
