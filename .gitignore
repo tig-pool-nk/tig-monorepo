@@ -16,3 +16,4 @@ Cargo.lock
 .vscode/
 
 __pycache__/
+extra/explo.py
