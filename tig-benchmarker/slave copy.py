@@ -29,11 +29,11 @@ async def run_tig_worker(tig_worker_path, batch, wasm_path, num_workers):
     start = now()
     cmd = [
         tig_worker_path, "compute_batch",
-        json.dumps(batch["settings"]),
-        batch["rand_hash"],
-        str(batch["start_nonce"]),
+        json.dumps(batch["settings"]), 
+        batch["rand_hash"], 
+        str(batch["start_nonce"]), 
         str(batch["num_nonces"]),
-        str(batch["batch_size"]),
+        str(batch["batch_size"]), 
         wasm_path,
         "--mem", str(batch["runtime_config"]["max_memory"]),
         "--fuel", str(batch["runtime_config"]["max_fuel"]),
@@ -92,7 +92,7 @@ async def main(
     headers = {
         "User-Agent": slave_name
     }
-
+    
     async with aiohttp.ClientSession() as session:
         while True:
             try:
@@ -100,40 +100,22 @@ async def main(
                 start = now()
                 get_batch_url = f"http://{master_ip}:{master_port}/get-batches"
                 logger.info(f"fetching job from {get_batch_url}")
-                try:
-                    resp = await asyncio.wait_for(session.get(get_batch_url, headers=headers), timeout=5)
+                async with session.get(get_batch_url, headers=headers) as resp:
                     if resp.status != 200:
-                        text = await resp.text()
-                        if resp.status == 404 and text.strip() == "No batches available":
-                            # Retry with master_port - 1
-                            new_port = master_port - 1
-                            get_batch_url = f"http://{master_ip}:{new_port}/get-batches"
-                            logger.info(f"No batches available on port {master_port}, trying port {new_port}")
-                            resp_retry = await asyncio.wait_for(session.get(get_batch_url, headers=headers), timeout=10)
-                            if resp_retry.status != 200:
-                                raise Exception(f"status {resp_retry.status} when fetching job: {await resp_retry.text()}")
-                            master_port_w = new_port
-                            batches = await resp_retry.json(content_type=None)
-                        else:
-                            raise Exception(f"status {resp.status} when fetching job: {text}")
-                    else:
-                        master_port_w = master_port
-                        batches = await resp.json(content_type=None)
-                except asyncio.TimeoutError:
-                    logger.error(f"Timeout occurred when fetching job from {get_batch_url}")
-                    continue
+                        raise Exception(f"status {resp.status} when fetching job: {await resp.text()}")
+                    batches = await resp.json(content_type=None)
                 logger.debug(f"fetching job: took {now() - start}ms")
 
                 # Process batches concurrently
                 tasks = [
-                    process_batch(session, master_ip, master_port_w, tig_worker_path, download_wasms_folder, num_workers, batch, headers)
+                    process_batch(session, master_ip, master_port, tig_worker_path, download_wasms_folder, num_workers, batch, headers)
                     for batch in batches
                 ]
                 await asyncio.gather(*tasks)
 
             except Exception as e:
                 logger.error(e)
-                await asyncio.sleep(2)
+                await asyncio.sleep(5)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TIG Slave Benchmarker")
@@ -144,9 +126,9 @@ if __name__ == "__main__":
     parser.add_argument("--name", type=str, default=randomname.get_name(), help="Name for the slave (default: randomly generated)")
     parser.add_argument("--port", type=int, default=5115, help="Port for master (default: 5115)")
     parser.add_argument("--verbose", action='store_true', help="Print debug logs")
-
+    
     args = parser.parse_args()
-
+    
     logging.basicConfig(
         format='%(levelname)s - [%(name)s] - %(message)s',
         level=logging.DEBUG if args.verbose else logging.INFO
