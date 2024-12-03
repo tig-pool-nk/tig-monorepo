@@ -31,6 +31,11 @@ fn cli() -> Command {
                         .value_parser(clap::value_parser!(u64)),
                 )
                 .arg(
+                    arg!(--interval [INTERVAL] "Optional amount of fuel between signatures")
+                        .default_value("200000000")
+                        .value_parser(clap::value_parser!(u64)),
+                )
+                .arg(
                     arg!(--mem [MEM] "Optional maximum memory parameter for WASM VM")
                         .default_value("1000000000")
                         .value_parser(clap::value_parser!(u64)),
@@ -286,10 +291,9 @@ fn compute_batch(
 
         let mut merkle_proofs = Vec::new();
         for (nonce, output_data) in output_data_map {
-            let branch = tree.calc_merkle_branch((nonce - start_nonce) as usize)?;
             merkle_proofs.push(MerkleProof {
                 leaf: output_data,
-                branch: Some(branch),
+                branch: tree.calc_merkle_branch((nonce - start_nonce) as usize)?,
             });
         }
 

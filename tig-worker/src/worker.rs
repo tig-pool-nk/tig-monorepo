@@ -43,7 +43,6 @@ pub fn compute_solution(
     };
 
     let mut config = Config::default();
-    config.update_runtime_signature(true);
     config.consume_fuel(true);
 
     let limits = StoreLimitsBuilder::new()
@@ -56,6 +55,7 @@ pub fn compute_solution(
     let mut store = Store::new(&engine, limits);
     store.limiter(|lim| lim);
     store.set_fuel(max_fuel).unwrap();
+    store.update_runtime_signature(u64::from_le_bytes(seed[..8].try_into().unwrap()));
     let linker = Linker::new(&engine);
     let module = Module::new(store.engine(), wasm).expect("Failed to instantiate module");
 
