@@ -93,10 +93,11 @@ async def main(
         "User-Agent": slave_name
     }
 
+
     async with aiohttp.ClientSession() as session:
         while True:
             try:
-                # Step 1: Query for job
+                # Step 1: Query for job test maj 
                 start = now()
                 get_batch_url = f"http://{master_ip}:{master_port}/get-batches"
                 logger.info(f"fetching job from {get_batch_url}")
