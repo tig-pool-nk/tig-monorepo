@@ -43,7 +43,11 @@ pub(crate) async fn update(cache: &mut AddBlockCache) {
 
     let mut phase_in_challenge_ids: HashSet<String> = active_challenge_ids.clone();
     for algorithm_id in active_algorithm_ids.iter() {
-        if active_algorithms_state[algorithm_id].round_active + 1 <= block_details.round {
+        if active_algorithms_state[algorithm_id]
+            .round_active
+            .as_ref()
+            .is_some_and(|r| *r + 1 <= block_details.round)
+        {
             phase_in_challenge_ids.remove(&active_algorithms_details[algorithm_id].challenge_id);
         }
     }
@@ -62,25 +66,22 @@ pub(crate) async fn update(cache: &mut AddBlockCache) {
         let phase_in_start = (block_details.round - 1) * config.rounds.blocks_per_round;
         let phase_in_period = config.opow.cutoff_phase_in_period;
         let phase_in_end = phase_in_start + phase_in_period;
-        let min_cutoff = config.opow.min_cutoff;
         let cutoff_cap = (self_deposit[player_id] / deposit_to_cutoff_cap_ratio).to_f64() as u32;
         let min_num_solutions = active_challenge_ids
             .iter()
             .map(|id| num_solutions_by_challenge.get(id).unwrap_or(&0).clone())
             .min()
             .unwrap();
-        let mut cutoff = min_cutoff
-            .max((min_num_solutions as f64 * config.opow.cutoff_multiplier).ceil() as u32)
-            .max(cutoff_cap);
-        // if phase_in_challenge_ids.len() > 0 && phase_in_end > block_details.height {
-        if phase_in_end > block_details.height {
+        let mut cutoff = cutoff_cap
+            .min((min_num_solutions as f64 * config.opow.cutoff_multiplier).ceil() as u32);
+        if phase_in_challenge_ids.len() > 0 && phase_in_end > block_details.height {
             let phase_in_min_num_solutions = active_challenge_ids
                 .iter()
                 .filter(|&id| !phase_in_challenge_ids.contains(id))
                 .map(|id| num_solutions_by_challenge.get(id).unwrap_or(&0).clone())
                 .min()
                 .unwrap();
-            let phase_in_cutoff = min_cutoff.max(
+            let phase_in_cutoff = cutoff_cap.min(
                 (phase_in_min_num_solutions as f64 * config.opow.cutoff_multiplier).ceil() as u32,
             );
             let phase_in_weight =
@@ -120,7 +121,7 @@ pub(crate) async fn update(cache: &mut AddBlockCache) {
             .map(|(settings, _)| settings.difficulty.clone())
             .collect::<Frontier>();
         let mut frontier_indexes = HashMap::<Point, usize>::new();
-        for (frontier_index, frontier) in pareto_algorithm(points, false).into_iter().enumerate() {
+        for (frontier_index, frontier) in pareto_algorithm(&points, false).into_iter().enumerate() {
             for point in frontier {
                 frontier_indexes.insert(point, frontier_index);
             }
@@ -197,23 +198,41 @@ pub(crate) async fn update(cache: &mut AddBlockCache) {
             .collect::<Frontier>();
         let (base_frontier, scaling_factor, scaled_frontier) = if points.len() == 0 {
             let base_frontier: Frontier = vec![min_difficulty.clone()].into_iter().collect();
-            let scaling_factor = 0.0;
+            let scaling_factor = 1.0;
             let scaled_frontier = base_frontier.clone();
             (base_frontier, scaling_factor, scaled_frontier)
         } else {
-            let base_frontier = pareto_algorithm(points, true)
+            let mut base_frontier = pareto_algorithm(&points, true)
                 .pop()
                 .unwrap()
                 .into_iter()
                 .map(|d| d.into_iter().map(|x| -x).collect())
-                .collect::<Frontier>() // mirror the points back;
-                .extend(&min_difficulty, &max_difficulty);
-            let scaling_factor = (challenge_data.num_qualifiers as f64
+                .collect::<Frontier>(); // mirror the points back;
+            base_frontier = extend_frontier(&base_frontier, &min_difficulty, &max_difficulty);
+
+            let mut scaling_factor = (challenge_data.num_qualifiers as f64
                 / config.opow.total_qualifiers_threshold as f64)
                 .min(config.challenges.max_scaling_factor);
-            let scaled_frontier = base_frontier
-                .scale(&min_difficulty, &max_difficulty, scaling_factor)
-                .extend(&min_difficulty, &max_difficulty);
+
+            if scaling_factor < 1.0 {
+                base_frontier = scale_frontier(
+                    &base_frontier,
+                    &min_difficulty,
+                    &max_difficulty,
+                    scaling_factor,
+                );
+                base_frontier = extend_frontier(&base_frontier, &min_difficulty, &max_difficulty);
+                scaling_factor = (1.0 / scaling_factor).min(config.challenges.max_scaling_factor);
+            }
+
+            let mut scaled_frontier = scale_frontier(
+                &base_frontier,
+                &min_difficulty,
+                &max_difficulty,
+                scaling_factor,
+            );
+            scaled_frontier = extend_frontier(&scaled_frontier, &min_difficulty, &max_difficulty);
+
             (base_frontier, scaling_factor, scaled_frontier)
         };
 
@@ -248,23 +267,28 @@ pub(crate) async fn update(cache: &mut AddBlockCache) {
         let player_data = active_players_block_data.get_mut(player_id).unwrap();
         let player_state = &active_players_state[player_id];
         if active_opow_ids.contains(player_id) {
-            player_data.delegatee = Some(player_id.clone());
-        } else if let Some(delegatee) = &player_state.delegatee {
-            if !active_opow_ids.contains(&delegatee.value)
-                // || self_deposit[player_id] < config.deposits.delegator_min_deposit
-                || self_deposit[&delegatee.value] < config.deposits.delegatee_min_deposit
-            {
-                continue;
-            }
-            player_data.delegatee = Some(delegatee.value.clone());
+            // benchmarkers self-delegate 100% to themselves
+            player_data.delegatees = HashMap::from([(player_id.clone(), 1.0)]);
+        } else if let Some(delegatees) = &player_state.delegatees {
+            player_data.delegatees = delegatees
+                .value
+                .iter()
+                .filter(|(delegatee, _)| {
+                    active_opow_ids.contains(delegatee.as_str())
+                        && self_deposit[delegatee.as_str()] >= config.deposits.delegatee_min_deposit
+                })
+                .map(|(delegatee, fraction)| (delegatee.clone(), *fraction))
+                .collect();
         } else {
             continue;
         }
-        let opow_data = active_opow_block_data
-            .get_mut(player_data.delegatee.as_ref().unwrap())
-            .unwrap();
-        opow_data.delegators.insert(player_id.clone());
-        opow_data.delegated_weighted_deposit += player_data.weighted_deposit;
+
+        for (delegatee, fraction) in player_data.delegatees.iter() {
+            let fraction = PreciseNumber::from_f64(*fraction);
+            let opow_data = active_opow_block_data.get_mut(delegatee).unwrap();
+            opow_data.delegators.insert(player_id.clone());
+            opow_data.delegated_weighted_deposit += player_data.weighted_deposit * fraction;
+        }
     }
     let total_deposit = active_opow_block_data
         .values()
@@ -272,7 +296,6 @@ pub(crate) async fn update(cache: &mut AddBlockCache) {
         .sum::<PreciseNumber>();
 
     let zero = PreciseNumber::from(0);
-    let one = PreciseNumber::from(1);
     let imbalance_multiplier = PreciseNumber::from_f64(config.opow.imbalance_multiplier);
     let num_challenges = PreciseNumber::from(active_challenge_ids.len());
 
@@ -303,9 +326,9 @@ pub(crate) async fn update(cache: &mut AddBlockCache) {
         let mean_percent_qualifiers = percent_qualifiers.arithmetic_mean();
         let max_deposit_to_qualifier_ratio =
             PreciseNumber::from_f64(config.opow.max_deposit_to_qualifier_ratio);
-        if mean_percent_qualifiers != zero
-            && percent_deposit / mean_percent_qualifiers > max_deposit_to_qualifier_ratio
-        {
+        if mean_percent_qualifiers == zero {
+            percent_deposit = zero.clone();
+        } else if percent_deposit / mean_percent_qualifiers > max_deposit_to_qualifier_ratio {
             percent_deposit = mean_percent_qualifiers * max_deposit_to_qualifier_ratio;
         }
 
@@ -336,52 +359,4 @@ pub(crate) async fn update(cache: &mut AddBlockCache) {
         let data = active_opow_block_data.get_mut(player_id).unwrap();
         data.influence = influence;
     }
-}
-
-fn find_smallest_range_dimension(points: &Frontier) -> usize {
-    (0..2)
-        .min_by_key(|&d| {
-            let (min, max) = points
-                .iter()
-                .map(|p| p[d])
-                .fold((i32::MAX, i32::MIN), |(min, max), val| {
-                    (min.min(val), max.max(val))
-                });
-            max - min
-        })
-        .unwrap()
-}
-
-fn pareto_algorithm(points: Frontier, only_one: bool) -> Vec<Frontier> {
-    if points.is_empty() {
-        return Vec::new();
-    }
-    let dimension = find_smallest_range_dimension(&points);
-    let sort_dimension = 1 - dimension;
-
-    let mut buckets: HashMap<i32, Vec<Point>> = HashMap::new();
-    for point in points {
-        buckets.entry(point[dimension]).or_default().push(point);
-    }
-    for (_, group) in buckets.iter_mut() {
-        // sort descending
-        group.sort_unstable_by(|a, b| b[sort_dimension].cmp(&a[sort_dimension]));
-    }
-    let mut result = Vec::new();
-    while !buckets.is_empty() {
-        let points: HashSet<Point> = buckets.values().map(|group| group[0].clone()).collect();
-        let frontier = points.pareto_frontier();
-        for point in frontier.iter() {
-            let bucket = buckets.get_mut(&point[dimension]).unwrap();
-            bucket.remove(0);
-            if bucket.is_empty() {
-                buckets.remove(&point[dimension]);
-            }
-        }
-        result.push(frontier);
-        if only_one {
-            break;
-        }
-    }
-    result
 }

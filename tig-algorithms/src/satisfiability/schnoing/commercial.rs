@@ -17,7 +17,7 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use tig_challenges::satisfiability::*;
 
 pub fn solve_challenge(challenge: &Challenge) -> anyhow::Result<Option<Solution>> {
-    let mut rng = StdRng::from_seed(challenge.seed);
+    let mut rng = StdRng::seed_from_u64(u64::from_le_bytes(challenge.seed[..8].try_into().unwrap()) as u64);
     let num_variables = challenge.difficulty.num_variables;
     let mut variables: Vec<bool> = (0..num_variables).map(|_| rng.gen::<bool>()).collect();
 
