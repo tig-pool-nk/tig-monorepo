@@ -48,7 +48,7 @@ pub async fn submit_precommit<T: Context>(
     if !ctx
         .get_algorithm_state(&settings.algorithm_id)
         .await
-        .is_some_and(|s| !s.banned && s.round_active <= block_details.round)
+        .is_some_and(|s| !s.banned && s.round_active.is_some_and(|r| r <= block_details.round))
     {
         return Err(anyhow!("Invalid algorithm '{}'", settings.algorithm_id));
     }
@@ -76,10 +76,10 @@ pub async fn submit_precommit<T: Context>(
     };
     if lower_frontier
         .iter()
-        .any(|lower_point| difficulty.pareto_compare(lower_point) == ParetoCompare::BDominatesA)
-        || upper_frontier
-            .iter()
-            .any(|upper_point| difficulty.pareto_compare(upper_point) == ParetoCompare::ADominatesB)
+        .any(|lower_point| pareto_compare(difficulty, lower_point) == ParetoCompare::BDominatesA)
+        || upper_frontier.iter().any(|upper_point| {
+            pareto_compare(difficulty, upper_point) == ParetoCompare::ADominatesB
+        })
     {
         return Err(anyhow!("Invalid difficulty. Out of bounds"));
     }
