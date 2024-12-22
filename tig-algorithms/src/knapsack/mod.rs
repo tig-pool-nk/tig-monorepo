@@ -101,7 +101,8 @@ pub use knapheudp as c003_a019;
 
 // c003_a050
 
-// c003_a051
+pub mod classic_quadkp;
+pub use classic_quadkp as c003_a051;
 
 // c003_a052
 
