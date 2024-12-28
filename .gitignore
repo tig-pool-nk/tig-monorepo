@@ -19,3 +19,7 @@ __pycache__/
 extra/explo.py
 tig-benchmarker/common/.DS_Store
 tig-benchmarker/.DS_Store
+
+# Ignore these. 
+.env
+db_data/
