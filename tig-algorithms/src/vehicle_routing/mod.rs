@@ -106,9 +106,11 @@ pub use advanced_routing as c002_a049;
 
 // c002_a052
 
-// c002_a053
+pub mod enhanced_routing;
+pub use enhanced_routing as c002_a053;
 
-// c002_a054
+pub mod advanced_heuristics;
+pub use advanced_heuristics as c002_a054;
 
 // c002_a055
 

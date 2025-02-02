@@ -5,7 +5,7 @@ import threading
 import uvicorn
 import json
 from datetime import datetime
-from master.sql import db_conn
+from master.sql import get_db_conn
 from fastapi import FastAPI, Query, Request, HTTPException, Depends, Header
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,7 +21,7 @@ class ClientManager:
         logger.info("ClientManager initialized and connected to the database.")
 
         # Fetch initial config from database
-        result = db_conn.fetch_one(
+        result = get_db_conn().fetch_one(
             """
             SELECT config FROM config
             LIMIT 1
@@ -54,7 +54,7 @@ class ClientManager:
         @self.app.get('/stop/{benchmark_id}')
         async def stop_benchmark(benchmark_id: str):
             try:
-                db_conn.execute(
+                get_db_conn().execute(
                     """
                     UPDATE job
                     SET stopped = true
@@ -76,7 +76,7 @@ class ClientManager:
                 new_config["api_url"] = new_config["api_url"].rstrip('/')
                 
                 # Update config in database
-                db_conn.execute(
+                get_db_conn().execute(
                     """
                     DELETE FROM config;
                     INSERT INTO config (config)
@@ -95,7 +95,7 @@ class ClientManager:
         
         @self.app.get("/get-jobs")
         async def get_jobs():
-            result = db_conn.fetch_all(
+            result = get_db_conn().fetch_all(
                 """
                 WITH recent_jobs AS (
                     SELECT benchmark_id 
@@ -195,6 +195,48 @@ class ClientManager:
 
             return JSONResponse(
                 content=[dict(row) for row in result], 
+                status_code=200,
+                headers = {"Accept-Encoding": "gzip"}
+            )
+
+        @self.app.get("/get-batch-data/{batch_id}")
+        async def get_batch_data(batch_id: str):
+            benchmark_id, batch_idx = batch_id.split("_")
+            result = get_db_conn().fetch_one(
+                f"""
+                SELECT
+                    JSONB_BUILD_OBJECT(
+                        'id', A.benchmark_id || '_' || A.batch_idx,
+                        'benchmark_id', A.benchmark_id,
+                        'start_nonce', A.batch_idx * B.batch_size,
+                        'num_nonces', LEAST(B.batch_size, B.num_nonces - A.batch_idx * B.batch_size),
+                        'settings', B.settings,
+                        'sampled_nonces', D.sampled_nonces,
+                        'runtime_config', B.runtime_config,
+                        'download_url', B.download_url,
+                        'rand_hash', B.rand_hash,
+                        'batch_size', B.batch_size,
+                        'batch_idx', A.batch_idx
+                    ) AS batch,
+                    C.merkle_root,
+                    C.solution_nonces,
+                    C.merkle_proofs
+                FROM root_batch A
+                INNER JOIN job B
+                ON A.benchmark_id = '{benchmark_id}'
+                AND A.batch_idx = {batch_idx}
+                AND A.benchmark_id = B.benchmark_id
+                INNER JOIN batch_data C
+                ON A.benchmark_id = C.benchmark_id
+                AND A.batch_idx = C.batch_idx
+                LEFT JOIN proofs_batch D
+                ON A.benchmark_id = D.benchmark_id
+                AND A.batch_idx = D.batch_idx
+                """
+            )
+
+            return JSONResponse(
+                content=dict(result), 
                 status_code=200,
                 headers = {"Accept-Encoding": "gzip"}
             )

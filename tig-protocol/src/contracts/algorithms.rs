@@ -148,6 +148,7 @@ pub(crate) async fn update(cache: &mut AddBlockCache) {
     let active_algorithm_ids = &block_data.active_ids[&ActiveType::Algorithm];
     let active_breakthrough_ids = &block_data.active_ids[&ActiveType::Breakthrough];
     let active_challenge_ids = &block_data.active_ids[&ActiveType::Challenge];
+    let active_player_ids = &block_data.active_ids[&ActiveType::Player];
 
     // update votes
     for breakthrough_state in voting_breakthroughs_state.values_mut() {
@@ -156,7 +157,8 @@ pub(crate) async fn update(cache: &mut AddBlockCache) {
             (false, PreciseNumber::from(0)),
         ]);
     }
-    for (player_id, player_state) in active_players_state.iter() {
+    for player_id in active_player_ids.iter() {
+        let player_state = &active_players_state[player_id];
         let player_data = &active_players_block_data[player_id];
         for (breakthrough_id, vote) in player_state.votes.iter() {
             let yes = vote.value;
@@ -214,10 +216,9 @@ pub(crate) async fn update(cache: &mut AddBlockCache) {
 
             if let Some(breakthrough_id) = &active_algorithms_details[algorithm_id].breakthrough_id
             {
-                active_breakthroughs_block_data
-                    .get_mut(breakthrough_id)
-                    .unwrap()
-                    .adoption += adoption;
+                if let Some(block_data) = active_breakthroughs_block_data.get_mut(breakthrough_id) {
+                    block_data.adoption += adoption;
+                }
             }
         }
     }

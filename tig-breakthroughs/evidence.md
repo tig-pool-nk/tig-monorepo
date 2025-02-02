@@ -23,29 +23,35 @@ WHEN PROVIDING EVIDENCE, YOU MAY CITE LINKS TO EXTERNAL DATA SOURCES.
 
 ## UNIQUE ALGORITHM IDENTIFIER (UAI)
 
-> UAI PLACEHOLDER - DO NOT EDIT
+> UAI PLACEHOLDER - ASSIGNED BY TIG PROTOCOL
 
-## DESCRIPTION OF ALGORITHMIC METHOD
+## SECTION 1
+
+IT IS IMPORTANT THAT THIS SECTION IS COMPLETED IN SUFFICIENT DETAIL TO FULLY DESCRIBE THE METHOD BECAUSE THIS WILL DEFINE THE METHOD THAT IS THE SUBJECT OF THE ASSIGNMENT THAT YOU EXECUTE.
+
+### DESCRIPTION OF ALGORITHMIC METHOD
 
 PLEASE IDENTIFY WHICH TIG CHALLENGE THE ALGORITHMIC METHOD ADDRESSES.
 
-> knapsack - DO NOT EDIT
+> YOUR RESPONSE HERE (options are satisfiability, vehicle_routing, knapsack, or vector_search)
 
 PLEASE DESCRIBE THE ALGORITHMIC METHOD AND THE PROBLEM THAT IT SOLVES.
 
 > YOUR RESPONSE HERE
 
-## ATTRIBUTION
+## SECTION 2
 
-PLEASE PROVIDE THE IDENTITY OF THE CREATOR OF THE ALGORITHMIC METHOD (this should be a natural person or legal entity. If an artificial intelligence has been used to assist in the creation of the algorithmic method then the creator is the operator of the artificial intelligence)
+THE COPYRIGHT IN THE IMPLEMENTATION WILL BE THE SUBJECT OF THE ASSIGNMENT THAT YOU EXECUTE.
+
+### IMPLEMENTATION OF ALGORITHMIC METHOD
+
+TO THE EXTENT THAT YOU HAVE IMPLEMENTED THE ALGORITHMIC METHOD IN CODE YOU SHOULD IDENTIFY THE CODE AND SUBMIT IT WITH THIS
 
 > YOUR RESPONSE HERE
 
-PLEASE PROVIDE EVIDENCE OF AUTHORSHIP WHERE IT IS AVAILABLE.
+## SECTION 3
 
-> YOUR RESPONSE HERE
-
-## NOVELTY AND INVENTIVENESS
+### NOVELTY AND INVENTIVENESS
 
 To support your claim that an algorithmic method is novel and inventive, you should provide evidence that demonstrates both its uniqueness (novelty) and its non-obviousness (inventiveness) in relation to the existing state of the art.
 
@@ -114,17 +120,23 @@ To support your claim that an algorithmic method is novel and inventive, you sho
 
   > YOUR RESPONSE HERE
 
+## SECTION 4
+
 ### EVIDENCE TO SUPPORT PATENTABILITY
 
 - **Development Records:** Please provide documentation of the invention process, including notes, sketches, and software versions, to establish a timeline of your innovation.
 
   > YOUR RESPONSE HERE
 
+## SECTION 5
+
 ### SUGGESTED APPLICATIONS
 
 - Please provide suggestions for any real world applications of your abstract algorithmic method that occur to you.
 
   > YOUR RESPONSE HERE
+
+## SECTION 6
 
 ### ANY OTHER INFORMATION
 
